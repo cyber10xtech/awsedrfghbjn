@@ -1,32 +1,73 @@
-name: Unzip All Files and Commit
+name: Extract ZIP to main
+
+# Manually trigger from the Actions tab. Paste a direct URL to a .zip file
+# (e.g. a link to the zip you download from Claude) and it will overwrite
+# the repo contents on main with what's inside the zip, then commit + push.
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch: # Allows you to run it manually
+  workflow_dispatch:
+    inputs:
+      zip_url:
+        description: "Direct URL to the .zip file to extract"
+        required: true
+        type: string
+      commit_message:
+        description: "Commit message"
+        required: false
+        default: "Auto-extract zip update"
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
-  unzip-and-commit:
+  extract:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # Grants the GITHUB_TOKEN permission to push commits
-
     steps:
-      - name: Checkout code
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: Unzip all zip files
-        run: |
-          find . -type f -name "*.zip" -exec unzip -o {} -d . \;
-          find . -type f -name "*.zip" -delete # Optional: Deletes the original zip files
+      - name: Download zip
+        run: curl -L -o update.zip "${{ inputs.zip_url }}"
 
-      - name: Commit and push changes
+      - name: Extract zip
         run: |
-          git config --local user.email "github-actions@users.noreply.github.com"
-          git config --local user.name "GitHub Actions"
-          git add .
-          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-unzip all zip files"
-          git push origin main
+          rm -rf _extracted
+          mkdir _extracted
+          unzip -q update.zip -d _extracted
+
+          # If the zip contains a single top-level folder, use its contents
+          # instead of the wrapper folder itself.
+          entries=$(ls -1 _extracted)
+          count=$(echo "$entries" | wc -l)
+          if [ "$count" -eq 1 ] && [ -d "_extracted/$entries" ]; then
+            src="_extracted/$entries"
+          else
+            src="_extracted"
+          fi
+
+          # Sync extracted files into the repo root, excluding files/folders
+          # that shouldn't be touched.
+          rsync -a --delete \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'node_modules' \
+            --exclude '.env' \
+            "$src"/ ./
+
+      - name: Clean up temp files
+        run: rm -rf update.zip _extracted
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "${{ inputs.commit_message }}"
+            git push origin main
+          fi
