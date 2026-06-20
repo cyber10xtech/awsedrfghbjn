@@ -1,47 +1,32 @@
-name: Auto Unzip Uploads
+name: Unzip All Files and Commit
 
 on:
   push:
-    paths:
-      - '**/*.zip'
+    branches:
+      - main
+  workflow_dispatch: # Allows you to run it manually
 
 jobs:
-  unzip-files:
+  unzip-and-commit:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Grants the GITHUB_TOKEN permission to push commits
 
     steps:
-      - name: Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: main
 
-      - name: Extract Every Zip File
+      - name: Unzip all zip files
         run: |
-          # Loop through all zip files in the workspace
-          find . -name "*.zip" -type f | while read -r zipfile; do
-            # Get the directory and base name of the zip file
-            dir=$(dirname "$zipfile")
-            base=$(basename "$zipfile" .zip)
-            
-            echo "Processing $zipfile..."
-            
-            # Unzip into a folder named after the archive file
-            unzip -o "$zipfile" -d "$dir/$base"
-            
-            # Remove the original zip file to avoid duplicate commits
-            rm "$zipfile"
-          done
+          find . -type f -name "*.zip" -exec unzip -o {} -d . \;
+          find . -type f -name "*.zip" -delete # Optional: Deletes the original zip files
 
-      - name: Commit and Push Changes
+      - name: Commit and push changes
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions@users.noreply.github.com"
+          git config --local user.name "GitHub Actions"
           git add .
-          
-          # Check if there are any changes to commit
-          if git diff --cached --quiet; then
-            echo "No changes detected."
-          else
-            git commit -m "chore: auto-unzip uploaded archive files"
-            git push
-          fi
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-unzip all zip files"
+          git push origin main
